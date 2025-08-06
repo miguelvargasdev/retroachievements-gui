@@ -1,74 +1,75 @@
 import sys
 import requests
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QListWidget, QListWidgetItem, QScrollArea, QFrame, QHBoxLayout
-from PySide6.QtGui import QPixmap, QFont, QPalette, QColor
-from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QScrollArea, 
+    QFrame, QHBoxLayout, QSizePolicy, QSpacerItem
+)
+from PySide6.QtGui import QPixmap, QFont, QPalette, QColor, QCursor
+from PySide6.QtCore import Qt, Signal
 from models.game import Game
 from models.user import User
+from api.retroachievements_api import get_game_info_and_user_progress, get_user_profile, get_user_recently_played_games, get_achievement_icon
 
-# === RetroAchievements API Config ===
+USERNAME = ""
 
-API_BASE = "https://retroachievements.org/API/"
-USERNAME = "itsmoogle"
-API_KEY = "7xj359YLXztut2MQzvZS4v49h8qimn9W"
+class ClickableGameCard(QFrame):
+    clicked = Signal(int)  # will emit game ID
 
-# === API Functions ===
+    def __init__(self, game: Game):
+        super().__init__()
+        self.game = game
+        self.setFrameShape(QFrame.StyledPanel)
+        self.setLineWidth(1)
+        self.setCursor(QCursor(Qt.PointingHandCursor))
 
-def get_user_profile(username: str):
-    """Fetch user profile."""
-    url = f"{API_BASE}API_GetUserProfile.php"
-    params = {
-		"u": username,
-  		"y": API_KEY,
-	}
-    response = requests.get(url,params=params)
+        layout = QHBoxLayout(self)
 
-    response.raise_for_status()
-    user = User(**response.json())
-    return user
+        # Game Image
+        self.image_label = QLabel()
+        if self.game.ImageIcon:
+            try:
+                image_response = requests.get(f"https://retroachievements.org{self.game.ImageIcon}")
+                pixmap = QPixmap()
+                pixmap.loadFromData(image_response.content)
+                self.image_label.setPixmap(pixmap.scaled(96, 96, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            except:
+                self.image_label.setText("No image")
+        layout.addWidget(self.image_label, stretch=0)
 
-def get_user_recently_played_games(ULID: str):
-    """Fetch user recently played games."""
-    url = f"{API_BASE}API_GetUserRecentlyPlayedGames.php"
-    params = {
-		"u": ULID,
-		"y": API_KEY,
-	}
-    response = requests.get(url, params=params)
-    response.raise_for_status()
-    
-    recent_games = response.json()
-    games = []
-    for game_data in recent_games: 
-        game_data = get_game_info_and_user_progress(ULID, game_data.get("GameID", ""))
-        game = Game(**game_data)
-        games.append(game)
-    
-    return games
+        # Text info container
+        text_container = QVBoxLayout()
+        title_label = QLabel(f"{self.game.Title} | ID: {self.game.ID}")
+        title_font = title_label.font()
+        title_font.setBold(True)
+        title_font.setPixelSize(14)
+        title_label.setFont(title_font)
 
-def get_game_info_and_user_progress(ULID: str, game_id: int):
-    """Fetches game info and the user's progress for that game."""
-    url = f"{API_BASE}API_GetGameInfoAndUserProgress.php"
-    params = {
-        "u": ULID,
-        "y": API_KEY,
-        "g": game_id
-    }
-    response = requests.get(url, params=params)
-    response.raise_for_status()
-    
-    
-    return response.json()
+        platform_label = QLabel(self.game.ConsoleName)
+        platform_palette = platform_label.palette()
+        platform_palette.setColor(QPalette.WindowText, QColor('gray'))
+        platform_font = platform_label.font()
+        platform_font.setPixelSize(12)
+        platform_label.setFont(platform_font)
+        platform_label.setPalette(platform_palette)
+
+        text_container.addWidget(title_label)
+        text_container.addWidget(platform_label)
+        text_container.addSpacerItem(QSpacerItem(0, 0, QSizePolicy.Expanding, QSizePolicy.Expanding))
+        layout.addLayout(text_container, stretch=1)
+
+    def mousePressEvent(self, event):
+        self.clicked.emit(self.game.ID)
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("RetroAchievements Client")
-        self.setGeometry(200, 200, 600, 400)
+        self.setGeometry(200, 200, 600, 600)
         
         container = QWidget()
-        layout = QVBoxLayout()
-	
+        layout = QVBoxLayout(container)
+    
         self.profile_label = QLabel("Loading profile...")
         self.profile_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.profile_label)
@@ -83,99 +84,72 @@ class MainWindow(QMainWindow):
         
         container.setLayout(layout)
         self.setCentralWidget(container)
-        
+
+        self.cards = {}  # map game ID to card widget (for toggling achievements)
+        self.achievements_widgets = {}  # to track achievement displays
+
         self.load_user_data()
         
     def load_user_data(self):
         try:
             user = get_user_profile(USERNAME)
-            
             score = user.TotalSoftcorePoints
             self.profile_label.setText(f"User: {USERNAME} | Gamerscore: {score}")
             
             recent_games = get_user_recently_played_games(user.ULID)
-            for game in recent_games: 
+            for game in recent_games:
                 self.add_game_card(game)
-                
         except Exception as e:
             self.profile_label.setText(f"Error loading profile: {e}")
+
     def add_game_card(self, game: Game):
-        """Create a game card with image, title, and system"""
-        title = game.Title
-        id = game.ID
-        console_name = game.ConsoleName
-        image_icon = game.ImageIcon
-        num_achievements = game.NumAchievements
-        
-        card = QFrame()
-        card.setFrameShape(QFrame.StyledPanel)
-        card.setLineWidth(1)
-   
-        card_layout = QHBoxLayout()
-        
-        image_label = QLabel()
-        if image_icon:
-            try: 
-                image_response = requests.get(f"https://retroachievements.org{image_icon}")
-                pixmap = QPixmap()
-                pixmap.loadFromData(image_response.content)
-                image_label.setPixmap(pixmap.scaled(96, 96, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-            except: 
-                image_label.setText("No image")
-                
-        card_layout.addWidget(image_label, stretch=0)
-        
-        text_container = QVBoxLayout()
-        title_label = QLabel(f"{title} | ID: {id} | Achievements: {num_achievements}")
-        
-        title_font = title_label.font()
-        title_font.setBold(True)
-        title_font.setPixelSize(14)
-        
-        title_label.setFont(title_font)
-
-        platform_label = QLabel(console_name)
-        
-        platform_palette = platform_label.palette()
-        platform_palette.setColor(QPalette.WindowText, QColor('gray'))
-        
-        platform_font = platform_label.font()
-        platform_font.setPixelSize(12)
-        
-        platform_label.setFont(platform_font)
-        platform_label.setPalette(platform_palette)
-        
-        text_container.addWidget(title_label)
-        text_container.addWidget(platform_label)
-        # ach_layout = QVBoxLayout()
-
-        # for ach_id, achievement in game.Achievements.items():
-        #     if achievement.DateEarned:
-                
-        #         ach_image_label = QLabel()
-        #         ach_image_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        #         if achievement.BadgeName:
-        #             try: 
-        #                 image_response = requests.get(f"https://retroachievements.org/Badge/{achievement.BadgeName}.png")
-        #                 pixmap = QPixmap()
-        #                 pixmap.loadFromData(image_response.content)
-        #                 ach_image_label.setPixmap(pixmap.scaled(32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        #             except: 
-        #                 ach_image_label.setText("No image")        
-        #         ach_title_label = QLabel(f"{achievement.Title} - Points: {achievement.Points}")
-        #         ach_title_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        #         ach_layout.addWidget(ach_image_label)
-        #         ach_layout.addWidget(ach_title_label)
-                
-                
-
-        
-        card_layout.addLayout(text_container, stretch=1)
-        # card_layout.addLayout(ach_layout)
-        
-        card.setLayout(card_layout)
+        card = ClickableGameCard(game)
+        card.clicked.connect(self.on_game_card_clicked)
         self.games_layout.addWidget(card)
-        
+        self.cards[game.ID] = card
+
+    def on_game_card_clicked(self, game_id: int):
+        # Toggle achievements display or load and show if not loaded
+        if game_id in self.achievements_widgets:
+            widget = self.achievements_widgets[game_id]
+            widget.setVisible(not widget.isVisible())
+            return
+
+        # Fetch detailed info
+        try:
+            detailed_game = get_game_info_and_user_progress(USERNAME, game_id)
+            achievements = detailed_game.Achievements  # should be a dict
+
+            achievements_container = QWidget()
+            achievements_layout = QVBoxLayout()
+            achievements_container.setLayout(achievements_layout)
+
+            for ach_id, achievement in achievements.items():
+                if achievement.DateEarned:
+                    ach_layout = QHBoxLayout()
+                    ach_image_label = QLabel()
+                    if achievement.BadgeName:
+                        icon = get_achievement_icon(achievement.BadgeName)
+                        if icon:
+                            pixmap = QPixmap(icon)
+                            ach_image_label.setPixmap(pixmap.scaled(32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                        else:
+                            ach_image_label.setText("No Image")
+                    ach_layout.addWidget(ach_image_label)
+
+                    ach_title_label = QLabel(f"{achievement.Title} - Points: {achievement.Points}")
+                    ach_layout.addWidget(ach_title_label)
+                    achievements_layout.addLayout(ach_layout)
+
+            # Insert achievements widget **after** the card in the layout
+            card = self.cards[game_id]
+            idx = self.games_layout.indexOf(card)
+            self.games_layout.insertWidget(idx + 1, achievements_container)
+            self.achievements_widgets[game_id] = achievements_container
+
+        except Exception as e:
+            self.profile_label.setText(f"Error loading achievements: {e}")
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = MainWindow()
