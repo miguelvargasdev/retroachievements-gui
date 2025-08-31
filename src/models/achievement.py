@@ -1,7 +1,8 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 from typing import Optional
 
-class Achievement(BaseModel): 
+@dataclass
+class Achievement: 
     ID: int
     NumAwarded: int
     NumAwardedHardcore: int
@@ -16,5 +17,9 @@ class Achievement(BaseModel):
     BadgeName: Optional[str]
     DisplayOrder: Optional[int]
     MemAddr: Optional[str]
-    type: Optional[str] = None
+    Type: Optional[str] = None
     DateEarned: Optional[str] = None
+    
+    @property
+    def earned(self):
+        return True if self.DateEarned != None else False

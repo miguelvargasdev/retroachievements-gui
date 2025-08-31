@@ -1,12 +1,14 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 from typing import Dict, Optional
 from models.achievement import Achievement
 
-class Game(BaseModel): 
-    ID: int
-    Title: str
-    ConsoleName: str
-    ImageIcon: Optional[str]
-    NumAchievements: int
-    Achievements: Dict[str, Achievement]
+
+@dataclass
+class Game: 
+    id: int
+    title: str
+    console: str
+    image_path: Optional[str]
+    num_of_achievements: int
+    achievements: Dict[str, Achievement]
     
