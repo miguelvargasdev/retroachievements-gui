@@ -1,0 +1,15 @@
+.UserCard{
+	display: flex;
+	flex-direction: row;
+	gap: 8px;
+	border: 1px solid gray;
+	padding: 12px;
+	border-radius: 16px;
+	background-color: #171716;
+	color: #2c97fa;
+}
+
+.Username{
+	font-size: 24px;
+	color: #cd9901;
+}
